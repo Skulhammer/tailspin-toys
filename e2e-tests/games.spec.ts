@@ -1,6 +1,52 @@
 import { test, expect, type Response } from '@playwright/test';
 
 test.describe('Game Listing and Navigation', () => {
+  test('should filter games by categories and publisher', async ({ page }) => {
+    await test.step('Navigate to the game catalog', async () => {
+      await page.goto('/');
+      await expect(page.getByTestId('game-filters')).toBeVisible();
+    });
+
+    await test.step('Filter by publisher', async () => {
+      await page.getByTestId('publisher-filter').selectOption({ label: 'CodeForge Studios' });
+
+      await expect(page.getByTestId('filter-results-count')).toHaveText('Showing 6 games.');
+      await expect(page.locator('[data-testid="game-card"]:not([hidden])')).toHaveCount(6);
+    });
+
+    await test.step('Add multiple category filters with keyboard-accessible controls', async () => {
+      const actionFilter = page.getByRole('checkbox', { name: 'Action' });
+      await actionFilter.focus();
+      await page.keyboard.press('Space');
+      await expect(actionFilter).toBeChecked();
+
+      await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+
+      await expect(page.getByTestId('filter-results-count')).toHaveText('Showing 3 games.');
+      const visibleCards = page.locator('[data-testid="game-card"]:not([hidden])');
+      await expect(visibleCards).toHaveCount(3);
+      await expect(visibleCards.getByTestId('game-publisher')).toHaveText([
+        'CodeForge Studios',
+        'CodeForge Studios',
+        'CodeForge Studios',
+      ]);
+      await expect(visibleCards.getByTestId('game-category')).toHaveText([
+        'Action',
+        'Puzzle',
+        'Action',
+      ]);
+    });
+
+    await test.step('Clear filters and restore the full catalog', async () => {
+      await page.getByTestId('clear-game-filters').click();
+
+      await expect(page.getByTestId('filter-results-count')).toHaveText('Showing 21 games.');
+      await expect(page.locator('[data-testid="game-card"]:not([hidden])')).toHaveCount(21);
+      await expect(page.getByRole('checkbox', { name: 'Action' })).not.toBeChecked();
+      await expect(page.getByTestId('publisher-filter')).toHaveValue('');
+    });
+  });
+
   test('should display games with titles on index page', async ({ page }) => {
     await test.step('Navigate to homepage', async () => {
       await page.goto('/');
