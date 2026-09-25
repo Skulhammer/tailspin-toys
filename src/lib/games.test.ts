@@ -3,9 +3,11 @@ import { createTestDatabase } from '../../db/test-helpers';
 import { categories, publishers, games } from '../../db/schema';
 import type { Database } from './db';
 import {
+    getAllCategories,
     getAllGames,
     getAllGameIds,
     getGameById,
+    getAllPublishers,
 } from './games';
 
 async function seedGames(db: Database, count: number): Promise<void> {
@@ -30,6 +32,63 @@ async function seedGames(db: Database, count: number): Promise<void> {
     }
 }
 
+/** Seed a varied catalog fixture for category and publisher filter tests. */
+async function seedFilterGames(db: Database): Promise<{
+    actionId: number;
+    puzzleId: number;
+    strategyId: number;
+    codeForgeId: number;
+    devMastersId: number;
+}> {
+    const [action, puzzle, strategy] = await db
+        .insert(categories)
+        .values([
+            { name: 'Action', description: 'cat' },
+            { name: 'Puzzle', description: 'cat' },
+            { name: 'Strategy', description: 'cat' },
+        ])
+        .returning({ id: categories.id, name: categories.name });
+    const [codeForge, devMasters] = await db
+        .insert(publishers)
+        .values([
+            { name: 'CodeForge', description: 'pub' },
+            { name: 'DevMasters', description: 'pub' },
+        ])
+        .returning({ id: publishers.id, name: publishers.name });
+
+    await db.insert(games).values([
+        {
+            title: 'Alpha Action',
+            description: 'Description',
+            starRating: 4.2,
+            categoryId: action.id,
+            publisherId: codeForge.id,
+        },
+        {
+            title: 'Bravo Puzzle',
+            description: 'Description',
+            starRating: 4.2,
+            categoryId: puzzle.id,
+            publisherId: devMasters.id,
+        },
+        {
+            title: 'Charlie Strategy',
+            description: 'Description',
+            starRating: 4.2,
+            categoryId: strategy.id,
+            publisherId: codeForge.id,
+        },
+    ]);
+
+    return {
+        actionId: action.id,
+        puzzleId: puzzle.id,
+        strategyId: strategy.id,
+        codeForgeId: codeForge.id,
+        devMastersId: devMasters.id,
+    };
+}
+
 describe('games data-access helpers', () => {
     let db: Database;
 
@@ -43,6 +102,56 @@ describe('games data-access helpers', () => {
         expect(all.map((g) => g.title)).toEqual(['Game 01', 'Game 02', 'Game 03']);
         expect(all[0].category).toEqual({ id: expect.any(Number), name: 'Strategy' });
         expect(all[0].publisher).toEqual({ id: expect.any(Number), name: 'Pub One' });
+    });
+
+    it('filters games by any selected category and publisher', async () => {
+        const filters = await seedFilterGames(db);
+
+        const categoryMatches = await getAllGames(db, {
+            categoryIds: [filters.strategyId, filters.actionId],
+        });
+        const publisherMatches = await getAllGames(db, {
+            publisherId: filters.codeForgeId,
+        });
+        const combinedMatches = await getAllGames(db, {
+            categoryIds: [filters.puzzleId, filters.strategyId],
+            publisherId: filters.codeForgeId,
+        });
+
+        expect(categoryMatches.map((game) => game.title)).toEqual([
+            'Alpha Action',
+            'Charlie Strategy',
+        ]);
+        expect(publisherMatches.map((game) => game.title)).toEqual([
+            'Alpha Action',
+            'Charlie Strategy',
+        ]);
+        expect(combinedMatches.map((game) => game.title)).toEqual(['Charlie Strategy']);
+    });
+
+    it('returns empty results when filters do not match a game', async () => {
+        const filters = await seedFilterGames(db);
+
+        await expect(
+            getAllGames(db, {
+                categoryIds: [filters.actionId],
+                publisherId: filters.devMastersId,
+            }),
+        ).resolves.toEqual([]);
+    });
+
+    it('returns category and publisher filter options ordered by name', async () => {
+        await seedFilterGames(db);
+
+        await expect(getAllCategories(db)).resolves.toEqual([
+            { id: expect.any(Number), name: 'Action' },
+            { id: expect.any(Number), name: 'Puzzle' },
+            { id: expect.any(Number), name: 'Strategy' },
+        ]);
+        await expect(getAllPublishers(db)).resolves.toEqual([
+            { id: expect.any(Number), name: 'CodeForge' },
+            { id: expect.any(Number), name: 'DevMasters' },
+        ]);
     });
 
     it('returns all game ids ordered by title', async () => {
